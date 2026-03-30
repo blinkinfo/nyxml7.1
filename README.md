@@ -10,10 +10,25 @@ Every 5 minutes, Polymarket runs a BTC Up/Down market (will BTC price go up or d
 
 1. **Monitors** the NEXT slot's (N+1) Up/Down prices 85 seconds before the current slot ends (T-85s)
 2. **Signals** if either side in the N+1 market reaches >= $0.51 (indicating early market consensus)
-3. **Trades** that same side in the N+1 slot (signal source and trade target are the same market)
-4. **Resolves** the outcome after the N+1 slot ends and tracks P&L
+3. **ADX Filter** — computes ADX(14) from Coinbase BTC-USD 5-minute candles:
+   - If ADX is **rising** (strengthening trend), the signal is **flipped** (Up becomes Down, Down becomes Up) to fade the consensus
+   - If ADX is **falling or flat**, the original signal is kept as-is
+4. **Trades** the final (possibly flipped) side in the N+1 slot
+5. **Resolves** the outcome after the N+1 slot ends and tracks P&L
 
-The key insight: the N+1 market opens for trading while slot N is still active. If the N+1 market already shows >= 53% conviction in one direction, the bot rides that early consensus.
+The key insight: the N+1 market opens for trading while slot N is still active. If the N+1 market already shows >= 51% conviction in one direction, the bot uses ADX to decide whether to ride or fade that consensus.
+
+### ADX Filter
+
+The **Average Directional Index (ADX)** measures trend strength using Wilder's smoothing method:
+
+- **Data source**: Coinbase public API — 35 most recent 5-minute BTC-USD candles (no auth required)
+- **Period**: ADX(14) — standard 14-period calculation
+- **Algorithm**: True Range + Directional Movement (+DM/-DM) smoothed with Wilder's method, producing +DI/-DI, then DX, then ADX
+- **Decision logic**:
+  - ADX rising (current > previous) = trend strengthening = **flip the signal** (contrarian fade)
+  - ADX falling/flat = trend weakening = **keep original signal** (ride consensus)
+- **Fallback**: If Coinbase data is unavailable, the bot proceeds with the original (unflipped) signal
 
 ### Timing
 
@@ -24,6 +39,7 @@ The key insight: the N+1 market opens for trading while slot N is still active. 
 ## Features
 
 - Real-time signal detection every 5 minutes
+- ADX(14) trend filter with automatic signal flipping
 - Optional auto-trading with configurable USDC amount
 - Full Telegram bot interface with inline keyboards
 - Signal and trade performance dashboards
@@ -99,10 +115,11 @@ autopoly/
 |-- bot/              # Telegram bot layer
 |   |-- handlers.py   # Command & callback handlers
 |   |-- keyboards.py  # Inline keyboard layouts
-|   |-- formatters.py # Message formatting (UTC timeslots)
+|   |-- formatters.py # Message formatting (UTC timeslots + ADX info)
 |   |-- middleware.py  # Chat ID auth guard
 |-- core/             # Trading engine
-|   |-- strategy.py   # Signal detection (N+1 prices at T-85s, $0.51 threshold)
+|   |-- adx.py        # ADX(14) calculator (Coinbase candles + Wilder's smoothing)
+|   |-- strategy.py   # Signal detection (N+1 prices at T-85s, $0.51 threshold, ADX filter)
 |   |-- trader.py     # FOK order execution
 |   |-- resolver.py   # Outcome polling
 |   |-- scheduler.py  # APScheduler 5-min loop
@@ -113,18 +130,20 @@ autopoly/
 |-- db/               # Database layer
 |   |-- models.py     # SQLite schema
 |   |-- queries.py    # CRUD & analytics
-|-- config.py         # Environment config
+|-- config.py         # Environment config (includes ADX settings)
 |-- main.py           # Entry point
 ```
 
 ## Technical Notes
 
 - Uses `aiosqlite` for non-blocking database access
-- Uses `httpx.AsyncClient` for Gamma API calls
+- Uses `httpx.AsyncClient` for Gamma API and Coinbase candle API calls
+- ADX(14) computed from scratch using Wilder's smoothing (no external TA library needed)
 - `py-clob-client` calls wrapped in `asyncio.to_thread()` (synchronous library)
 - APScheduler and Telegram bot share the same async event loop
 - FOK order amounts rounded to 2 decimal places (py-clob-client issue #121)
 - All timestamps stored and displayed in UTC
+- If Coinbase API is unavailable, the ADX filter gracefully degrades (original signal kept)
 
 ## License
 

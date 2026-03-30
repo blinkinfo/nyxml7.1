@@ -15,15 +15,27 @@ def format_signal(
     slot_start_str: str,
     slot_end_str: str,
     autotrade: bool,
+    adx_direction: str | None = None,
+    adx_flipped: bool = False,
+    adx_value: float | None = None,
 ) -> str:
     side_emoji = "\U0001f4c8" if side == "Up" else "\U0001f4c9"
     at_line = "\U0001f916 AutoTrade: ON \u2192 Order Placed" if autotrade else "\U0001f916 AutoTrade: OFF"
+
+    # ADX info line
+    adx_line = ""
+    if adx_direction is not None and adx_value is not None:
+        adx_emoji = "\U0001f4c8" if adx_direction == "rising" else "\U0001f4c9"
+        flip_note = " (FLIPPED)" if adx_flipped else ""
+        adx_line = f"\u2502 {adx_emoji} ADX(14): {adx_value:.2f} {adx_direction}{flip_note}\n"
+
     return (
         "\U0001f4e1 <b>Signal Fired!</b>\n"
         "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
         f"\u2502 \u23f0 Slot: {slot_start_str}-{slot_end_str} UTC\n"
         f"\u2502 {side_emoji} Side: {side}\n"
         f"\u2502 \U0001f4b2 Ask Price: ${entry_price:.2f}\n"
+        f"{adx_line}"
         f"\u2502 {at_line}\n"
         "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
     )
@@ -34,12 +46,20 @@ def format_skip(
     slot_end_str: str,
     up_price: float,
     down_price: float,
+    adx_direction: str | None = None,
+    adx_value: float | None = None,
 ) -> str:
+    adx_line = ""
+    if adx_direction is not None and adx_value is not None:
+        adx_emoji = "\U0001f4c8" if adx_direction == "rising" else "\U0001f4c9"
+        adx_line = f"\u2502 {adx_emoji} ADX(14): {adx_value:.2f} {adx_direction}\n"
+
     return (
         "\u23ed\ufe0f <b>No Signal</b>\n"
         "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
         f"\u2502 \u23f0 Slot: {slot_start_str}-{slot_end_str} UTC\n"
         f"\u2502 \U0001f4c8 Up Ask: ${up_price:.2f}  |  \U0001f4c9 Down Ask: ${down_price:.2f}\n"
+        f"{adx_line}"
         "\u2502 Neither side \u2265 $0.51 \u2014 skipping\n"
         "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
     )
@@ -201,6 +221,11 @@ def format_help() -> str:
         "<b>How it works:</b>\n"
         "Every 5 minutes the bot checks the NEXT slot's BTC up/down "
         "prices 85 seconds before the current slot ends. If either "
-        "side \u2265 $0.51, a signal fires and trades that slot. "
+        "side \u2265 $0.51, a signal fires and trades that slot.\n\n"
+        "<b>ADX Filter:</b>\n"
+        "The bot computes ADX(14) from Coinbase BTC-USD 5-minute candles. "
+        "If ADX is <b>rising</b> (strengthening trend), the signal is "
+        "<b>flipped</b> (Up\u2194Down) to fade the consensus. If ADX is "
+        "falling or flat, the original signal is kept. "
         "With AutoTrade ON, a FOK market order is placed automatically."
     )

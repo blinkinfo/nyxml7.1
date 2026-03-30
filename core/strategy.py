@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 import config as cfg
+from core.adx import get_adx_direction
 from polymarket.markets import (
     get_current_slot_info,
     get_next_slot_info,
@@ -22,6 +23,9 @@ async def check_signal() -> dict[str, Any] | None:
     2. If UP price >= threshold -> signal "Up".
     3. If DOWN price >= threshold -> signal "Down".
     4. If neither >= threshold -> return skip sentinel.
+    5. If signal found, check ADX(14) direction:
+       - ADX rising -> flip the side (Up<->Down) and swap token_id.
+       - ADX falling/flat -> keep original signal.
 
     Returns a dict (signal or skip) or ``None`` on hard error.
     """
@@ -72,16 +76,47 @@ async def check_signal() -> dict[str, Any] | None:
             "slot_n1_ts": slot_n1["slot_start_ts"],
         }
 
-    # Token ID comes directly from the N+1 prices we already fetched
+    # --- ADX filter -----------------------------------------------------
+    adx_direction: str | None = None
+    adx_value: float | None = None
+    adx_prev_value: float | None = None
+    adx_flipped = False
+
+    adx_info = await get_adx_direction()
+    if adx_info is not None:
+        adx_direction = adx_info["direction"]
+        adx_value = adx_info["adx_current"]
+        adx_prev_value = adx_info["adx_previous"]
+
+        if adx_direction == "rising":
+            # Flip signal: Up <-> Down
+            original_side = side
+            side = "Down" if side == "Up" else "Up"
+            entry_price, opposite_price = opposite_price, entry_price
+            adx_flipped = True
+            log.info(
+                "ADX rising (%.2f) — flipped signal from %s to %s",
+                adx_value, original_side, side,
+            )
+        else:
+            log.info(
+                "ADX %s (%.2f) — keeping original signal %s",
+                adx_direction, adx_value, side,
+            )
+    else:
+        log.warning("ADX data unavailable — proceeding with original signal %s", side)
+
+    # Token ID comes from the prices dict based on the (possibly flipped) side
     token_id = prices["up_token_id"] if side == "Up" else prices["down_token_id"]
 
     log.info(
-        "SIGNAL: %s @ ask $%.4f for slot N+1 %s-%s UTC  token=%s",
+        "SIGNAL: %s @ ask $%.4f for slot N+1 %s-%s UTC  token=%s  adx_flipped=%s",
         side,
         entry_price,
         slot_n1["slot_start_str"],
         slot_n1["slot_end_str"],
         token_id,
+        adx_flipped,
     )
 
     return {
@@ -97,4 +132,9 @@ async def check_signal() -> dict[str, Any] | None:
         "slot_n1_end_str": slot_n1["slot_end_str"],
         "slot_n1_ts": slot_n1["slot_start_ts"],
         "slot_n1_slug": slot_n1["slug"],
+        # ADX filter fields
+        "adx_direction": adx_direction,
+        "adx_value": adx_value,
+        "adx_prev_value": adx_prev_value,
+        "adx_flipped": adx_flipped,
     }

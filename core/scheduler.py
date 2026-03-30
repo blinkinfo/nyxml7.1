@@ -215,6 +215,11 @@ async def _check_and_trade() -> None:
     token_id = signal["token_id"]
     slug = signal.get("slot_n1_slug", f"btc-updown-5m-{slot_ts}")
 
+    # ADX fields from strategy
+    adx_direction = signal.get("adx_direction")
+    adx_flipped = signal.get("adx_flipped", False)
+    adx_value = signal.get("adx_value")
+
     signal_id = await queries.insert_signal(
         slot_start=slot_start_full,
         slot_end=slot_end_full,
@@ -229,13 +234,16 @@ async def _check_and_trade() -> None:
     autotrade = await queries.is_autotrade_enabled()
     trade_amount = await queries.get_trade_amount()
 
-    # 4. Send signal notification
+    # 4. Send signal notification (with ADX info)
     msg = format_signal(
         side=side,
         entry_price=entry_price,
         slot_start_str=slot_start_str,
         slot_end_str=slot_end_str,
         autotrade=autotrade,
+        adx_direction=adx_direction,
+        adx_flipped=adx_flipped,
+        adx_value=adx_value,
     )
     await _send_telegram(msg)
 

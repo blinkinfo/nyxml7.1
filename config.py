@@ -37,3 +37,10 @@ DB_PATH: str = os.getenv("DB_PATH", "autopoly.db")
 # ---------------------------------------------------------------------------
 SIGNAL_THRESHOLD: float = 0.51
 SIGNAL_LEAD_TIME: int = 85  # seconds before slot end to check signal
+
+# ---------------------------------------------------------------------------
+# ADX Filter
+# ---------------------------------------------------------------------------
+ADX_LENGTH: int = 14                # ADX period (Wilder's smoothing)
+ADX_CANDLE_COUNT: int = 35          # 5-min candles to fetch from Coinbase
+COINBASE_CANDLE_URL: str = "https://api.exchange.coinbase.com/products/BTC-USD/candles"
