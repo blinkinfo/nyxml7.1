@@ -14,39 +14,18 @@ def format_signal(
     entry_price: float,
     slot_start_str: str,
     slot_end_str: str,
-    autotrade: bool,
     adx_direction: str | None = None,
     adx_flipped: bool = False,
     adx_value: float | None = None,
-    n2_filter_enabled: bool = True,
-    n2_side: str | None = None,
-    filter_blocked: bool = False,
-    demo_trade: bool = False,
 ) -> str:
+    """Pure signal notification — market info only, no trade layer details."""
     side_emoji = "\U0001f4c8" if side == "Up" else "\U0001f4c9"
-    if not autotrade and not demo_trade:
-        at_line = "\U0001f916 AutoTrade: OFF"
-    elif not autotrade and demo_trade:
-        at_line = "\U0001f916 AutoTrade: OFF | \U0001f9ea Demo Trade Placed"
-    elif filter_blocked:
-        at_line = "\U0001f916 AutoTrade: ON (Trade Blocked by N-2 Filter)"
-    else:
-        at_line = "\U0001f916 AutoTrade: ON \u2192 Order Placed"
 
-    # ADX info line
     adx_line = ""
     if adx_direction is not None and adx_value is not None:
         adx_emoji = "\U0001f4c8" if adx_direction == "rising" else "\U0001f4c9"
         flip_note = " (FLIPPED)" if adx_flipped else ""
         adx_line = f"\u2502 {adx_emoji} ADX(14): {adx_value:.2f} {adx_direction}{flip_note}\n"
-
-    # N-2 filter info line
-    n2_line = ""
-    if n2_filter_enabled and n2_side is not None:
-        n2_emoji = "\U0001f4c8" if n2_side == "Up" else "\U0001f4c9"
-        n2_line = f"\u2502 {n2_emoji} N-2 was: {n2_side} \u2713 differs\n"
-    elif n2_filter_enabled and n2_side is None:
-        n2_line = "\u2502 \u2754 N-2: no prior trade\n"
 
     return (
         "\U0001f4e1 <b>Signal Fired!</b>\n"
@@ -55,8 +34,6 @@ def format_signal(
         f"\u2502 {side_emoji} Side: {side}\n"
         f"\u2502 \U0001f4b2 Ask Price: ${entry_price:.2f}\n"
         f"{adx_line}"
-        f"{n2_line}"
-        f"\u2502 {at_line}\n"
         "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
     )
 
@@ -91,15 +68,17 @@ def format_filter_blocked(
     slot_end_str: str,
     reason: str,
     n2_side: str | None = None,
+    is_demo: bool = False,
 ) -> str:
-    """Notification sent when the N-2 filter blocks a trade."""
+    """Sent when the N-2 filter blocks a real trade or demo trade."""
     side_emoji = "\U0001f4c8" if side == "Up" else "\U0001f4c9"
+    prefix = "\U0001f9ea [DEMO] " if is_demo else ""
     n2_line = ""
     if n2_side:
         n2_emoji = "\U0001f4c8" if n2_side == "Up" else "\U0001f4c9"
         n2_line = f"\u2502 {n2_emoji} N-2 Side: {n2_side}\n"
     return (
-        "\U0001f6ab <b>Trade Blocked \u2014 N-2 Filter</b>\n"
+        f"\U0001f6ab <b>{prefix}Trade Blocked \u2014 N-2 Filter</b>\n"
         "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
         f"\u2502 \u23f0 Slot: {slot_start_str}-{slot_end_str} UTC\n"
         f"\u2502 {side_emoji} Signal: {side}\n"
@@ -109,33 +88,76 @@ def format_filter_blocked(
     )
 
 
-def format_resolution(
+def format_signal_resolution(
     is_win: bool,
     side: str,
     entry_price: float,
     slot_start_str: str,
     slot_end_str: str,
-    pnl: float | None = None,
-    is_demo: bool = False,
 ) -> str:
+    """Signal outcome — always sent. No P&L (trade-layer concern)."""
     result_price = 1.00 if is_win else 0.00
     icon = "\u2705" if is_win else "\u274c"
     label = "WIN" if is_win else "LOSS"
     side_emoji = "\U0001f4c8" if side == "Up" else "\U0001f4c9"
-    demo_prefix = "\U0001f9ea [DEMO] " if is_demo else ""
-
-    lines = [
-        f"{icon} <b>{demo_prefix}Signal Result \u2014 {label}</b>",
+    return "\n".join([
+        f"{icon} <b>Signal Result \u2014 {label}</b>",
         "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
         f"\u2502 \u23f0 Slot: {slot_start_str}-{slot_end_str} UTC",
         f"\u2502 {side_emoji} Side: {side}",
         f"\u2502 \U0001f4b2 Entry: ${entry_price:.2f} \u2192 Result: ${result_price:.2f}",
-    ]
-    if pnl is not None:
-        sign = "+" if pnl >= 0 else ""
-        lines.append(f"\u2502 \U0001f4b0 P&L: {sign}${pnl:.2f}")
-    lines.append("\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
-    return "\n".join(lines)
+        "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    ])
+
+
+def format_trade_resolution(
+    is_win: bool,
+    side: str,
+    entry_price: float,
+    slot_start_str: str,
+    slot_end_str: str,
+    pnl: float,
+) -> str:
+    """Real trade outcome — only sent when a real trade was placed."""
+    icon = "\u2705" if is_win else "\u274c"
+    label = "WIN" if is_win else "LOSS"
+    side_emoji = "\U0001f4c8" if side == "Up" else "\U0001f4c9"
+    sign = "+" if pnl >= 0 else ""
+    return "\n".join([
+        f"{icon} <b>Trade Result \u2014 {label}</b>",
+        "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+        f"\u2502 \u23f0 Slot: {slot_start_str}-{slot_end_str} UTC",
+        f"\u2502 {side_emoji} Side: {side}",
+        f"\u2502 \U0001f4b2 Entry: ${entry_price:.2f}",
+        f"\u2502 \U0001f4b0 P&L: {sign}${pnl:.2f}",
+        "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    ])
+
+
+def format_demo_resolution(
+    is_win: bool,
+    side: str,
+    entry_price: float,
+    slot_start_str: str,
+    slot_end_str: str,
+    pnl: float,
+    new_bankroll: float,
+) -> str:
+    """Demo trade outcome — only sent when a demo trade was placed."""
+    icon = "\u2705" if is_win else "\u274c"
+    label = "WIN" if is_win else "LOSS"
+    side_emoji = "\U0001f4c8" if side == "Up" else "\U0001f4c9"
+    sign = "+" if pnl >= 0 else ""
+    return "\n".join([
+        f"{icon} <b>\U0001f9ea [DEMO] Trade Result \u2014 {label}</b>",
+        "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+        f"\u2502 \u23f0 Slot: {slot_start_str}-{slot_end_str} UTC",
+        f"\u2502 {side_emoji} Side: {side}",
+        f"\u2502 \U0001f4b2 Entry: ${entry_price:.2f}",
+        f"\u2502 \U0001f4b0 P&L: {sign}${pnl:.2f}",
+        f"\u2502 \U0001f4b5 Bankroll: ${new_bankroll:.2f}",
+        "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +253,7 @@ def format_redeem_preview(results: list[dict]) -> str:
     SEP = "\u2501" * 20
     if not results:
         return (
-            "\U0001f4b0 <b>Redeem — No Positions Found</b>\n"
+            "\U0001f4b0 <b>Redeem \u2014 No Positions Found</b>\n"
             + SEP + "\n"
             "No redeemable winning positions detected in your wallet.\n"
             "Positions only appear here once the market resolves on-chain."
@@ -260,7 +282,7 @@ def format_redeem_results(results: list[dict]) -> str:
         return (
             "\U0001f4b0 <b>Redeem Complete</b>\n"
             + SEP + "\n"
-            "No redeemable positions found — nothing to redeem."
+            "No redeemable positions found \u2014 nothing to redeem."
         )
 
     success_count = sum(1 for r in results if r.get("success"))
@@ -365,7 +387,6 @@ def format_signal_stats(stats: dict[str, Any], label: str = "All Time") -> str:
         f"\U0001f480 Worst Loss Streak: {stats['worst_loss_streak']}",
         SEP,
         f"\u23ed\ufe0f Skipped (No Signal): {stats['skip_count']}",
-        f"\U0001f6ab N-2 Filter Blocked: {stats.get('filter_blocked_count', 0)}",
     ]
     return "\n".join(lines)
 
@@ -454,8 +475,6 @@ def format_recent_signals(signals: list[dict[str, Any]]) -> str:
         se = s["slot_end"].split(" ")[-1] if " " in s["slot_end"] else s["slot_end"]
         if s["skipped"]:
             lines.append(f"\u23ed\ufe0f {ss}-{se} UTC \u2014 skipped")
-        elif s.get("filter_blocked"):
-            lines.append(f"\U0001f6ab {ss}-{se} UTC \u2014 N-2 blocked")
         else:
             icon = "\u2705" if s.get("is_win") == 1 else ("\u274c" if s.get("is_win") == 0 else "\u23f3")
             lines.append(f"{icon} {ss}-{se} UTC  {s['side']}  ${s.get('entry_price', 0):.2f}")

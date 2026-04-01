@@ -60,8 +60,16 @@ async def _resolve_and_notify(signal_id: int, slug: str, side: str, entry_price:
                                slot_start: str, slot_end: str, trade_id: int | None,
                                amount_usdc: float | None,
                                is_demo: bool = False) -> None:
-    """Poll for resolution, update DB, notify Telegram."""
-    from bot.formatters import format_resolution
+    """Poll for resolution, update DB, notify Telegram.
+
+    Always sends a signal result message.
+    Also sends a separate trade/demo result message if a trade was placed.
+    """
+    from bot.formatters import (
+        format_signal_resolution,
+        format_trade_resolution,
+        format_demo_resolution,
+    )
 
     winner = await resolver.resolve_slot(slug)
     if winner is None:
@@ -85,7 +93,20 @@ async def _resolve_and_notify(signal_id: int, slug: str, side: str, entry_price:
     is_win = winner == side
     await queries.resolve_signal(signal_id, winner, is_win)
 
-    pnl: float | None = None
+    # Extract HH:MM from slot_start/slot_end full strings
+    s_start = slot_start.split(" ")[-1] if " " in slot_start else slot_start
+    s_end = slot_end.split(" ")[-1] if " " in slot_end else slot_end
+
+    # Always send signal result (pure market outcome, no P&L)
+    await _send_telegram(format_signal_resolution(
+        is_win=is_win,
+        side=side,
+        entry_price=entry_price,
+        slot_start_str=s_start,
+        slot_end_str=s_end,
+    ))
+
+    # Send trade result only if a trade was actually placed
     if trade_id is not None and amount_usdc is not None:
         if is_win:
             pnl = round(amount_usdc * (1.0 / entry_price - 1.0), 4)
@@ -93,27 +114,30 @@ async def _resolve_and_notify(signal_id: int, slug: str, side: str, entry_price:
             pnl = -amount_usdc
         await queries.resolve_trade(trade_id, winner, is_win, pnl)
 
-        # Update demo bankroll on resolution
-        if is_demo and pnl is not None:
+        if is_demo:
+            # Credit demo bankroll on win (loss was already deducted at entry)
             if is_win:
-                # Credit back staked amount + net profit
-                await queries.adjust_demo_bankroll(amount_usdc + pnl)
-            # On loss, amount_usdc was already deducted at entry — nothing to add back
-
-    # Extract HH:MM from slot_start/slot_end full strings
-    s_start = slot_start.split(" ")[-1] if " " in slot_start else slot_start
-    s_end = slot_end.split(" ")[-1] if " " in slot_end else slot_end
-
-    msg = format_resolution(
-        is_win=is_win,
-        side=side,
-        entry_price=entry_price,
-        slot_start_str=s_start,
-        slot_end_str=s_end,
-        pnl=pnl,
-        is_demo=is_demo,
-    )
-    await _send_telegram(msg)
+                new_bankroll = await queries.adjust_demo_bankroll(amount_usdc + pnl)
+            else:
+                new_bankroll = await queries.get_demo_bankroll()
+            await _send_telegram(format_demo_resolution(
+                is_win=is_win,
+                side=side,
+                entry_price=entry_price,
+                slot_start_str=s_start,
+                slot_end_str=s_end,
+                pnl=pnl,
+                new_bankroll=new_bankroll,
+            ))
+        else:
+            await _send_telegram(format_trade_resolution(
+                is_win=is_win,
+                side=side,
+                entry_price=entry_price,
+                slot_start_str=s_start,
+                slot_end_str=s_end,
+                pnl=pnl,
+            ))
 
 
 async def _reconcile_pending() -> None:
@@ -123,7 +147,7 @@ async def _reconcile_pending() -> None:
     per pending slot. Resolved slots are removed from the queue and reported
     to Telegram. Unresolved slots remain for the next cycle.
     """
-    from bot.formatters import format_resolution
+    from bot.formatters import format_signal_resolution, format_trade_resolution, format_demo_resolution
 
     pending = await pending_queue.list_pending()
     if not pending:
@@ -172,19 +196,37 @@ async def _reconcile_pending() -> None:
         # Remove from queue
         await pending_queue.remove_pending(signal_id)
 
-        # Notify Telegram
+        # Notify Telegram — signal result always, trade/demo result only if trade was placed
         s_start = slot_start.split(" ")[-1] if " " in slot_start else slot_start
         s_end = slot_end.split(" ")[-1] if " " in slot_end else slot_end
-        msg = format_resolution(
+        await _send_telegram(format_signal_resolution(
             is_win=is_win,
             side=side,
             entry_price=entry_price,
             slot_start_str=s_start,
             slot_end_str=s_end,
-            pnl=pnl,
-            is_demo=is_demo,
-        )
-        await _send_telegram(msg)
+        ))
+        if trade_id is not None and pnl is not None:
+            if is_demo:
+                new_bankroll = await queries.get_demo_bankroll()
+                await _send_telegram(format_demo_resolution(
+                    is_win=is_win,
+                    side=side,
+                    entry_price=entry_price,
+                    slot_start_str=s_start,
+                    slot_end_str=s_end,
+                    pnl=pnl,
+                    new_bankroll=new_bankroll,
+                ))
+            else:
+                await _send_telegram(format_trade_resolution(
+                    is_win=is_win,
+                    side=side,
+                    entry_price=entry_price,
+                    slot_start_str=s_start,
+                    slot_end_str=s_end,
+                    pnl=pnl,
+                ))
         log.info(
             "Reconciler: resolved signal %d — winner=%s is_win=%s",
             signal_id, winner, is_win,
@@ -277,6 +319,9 @@ async def _check_and_trade() -> None:
         format_trade_unmatched,
         format_trade_aborted,
         format_trade_retrying,
+        format_signal_resolution,
+        format_trade_resolution,
+        format_demo_resolution,
     )
     from core.trade_manager import TradeManager
 
@@ -351,6 +396,7 @@ async def _check_and_trade() -> None:
             slot_end_str=slot_end_str,
             reason=filter_result.reason,
             n2_side=filter_result.n2_side,
+            is_demo=demo_trade_enabled,
         )
         await _send_telegram(msg)
 
@@ -359,20 +405,15 @@ async def _check_and_trade() -> None:
     trade_amount = await queries.get_trade_amount()
     # demo_trade_enabled already fetched above (step 3)
 
-    # 5. Send signal notification (with ADX and N-2 filter info)
+    # 5. Send signal notification — pure market signal, no trade-layer details
     msg = format_signal(
         side=side,
         entry_price=entry_price,
         slot_start_str=slot_start_str,
         slot_end_str=slot_end_str,
-        autotrade=autotrade,
         adx_direction=adx_direction,
         adx_flipped=adx_flipped,
         adx_value=adx_value,
-        n2_filter_enabled=(await queries.is_n2_filter_enabled()),
-        n2_side=filter_result.n2_side,
-        filter_blocked=(not filter_result.allowed),
-        demo_trade=demo_trade_enabled,
     )
     await _send_telegram(msg)
 
