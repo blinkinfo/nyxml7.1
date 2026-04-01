@@ -703,7 +703,7 @@ async def get_n4_trade_win(current_slot_ts: int) -> bool | None:
         db.row_factory = aiosqlite.Row
         # Find the signal for slot N-4
         cursor = await db.execute(
-            "SELECT id FROM signals WHERE slot_timestamp = ? AND skipped = 0 AND filter_blocked = 0 LIMIT 1",
+            "SELECT id FROM signals WHERE slot_timestamp = ? AND skipped = 0 LIMIT 1",
             (n4_ts,),
         )
         row = await cursor.fetchone()
@@ -739,7 +739,7 @@ async def get_n4_demo_trade_win(current_slot_ts: int) -> bool | None:
         db.row_factory = aiosqlite.Row
         # Find the signal for slot N-4
         cursor = await db.execute(
-            "SELECT id FROM signals WHERE slot_timestamp = ? AND skipped = 0 AND filter_blocked = 0 LIMIT 1",
+            "SELECT id FROM signals WHERE slot_timestamp = ? AND skipped = 0 LIMIT 1",
             (n4_ts,),
         )
         row = await cursor.fetchone()
