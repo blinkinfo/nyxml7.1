@@ -354,6 +354,7 @@ async def _check_and_trade() -> None:
     # 4. Check autotrade
     autotrade = await queries.is_autotrade_enabled()
     trade_amount = await queries.get_trade_amount()
+    demo_trade_enabled = await queries.is_demo_trade_enabled()
 
     # 5. Send signal notification (with ADX and N-2 filter info)
     msg = format_signal(
@@ -376,9 +377,6 @@ async def _check_and_trade() -> None:
     trade_id: int | None = None
     amount_usdc: float | None = None
     slot_label = f"{slot_start_str}-{slot_end_str}"
-
-    # Demo trade flag (read once, used in both demo and real branch)
-    demo_trade_enabled = await queries.is_demo_trade_enabled()
 
     if not filter_result.allowed:
         # Filter blocked — no trade placed, trade_id stays None
