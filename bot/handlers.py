@@ -515,7 +515,7 @@ async def _handle_redeem_confirm(update: Update, context: ContextTypes.DEFAULT_T
 
     results: list[dict] = []
     for pos in preview:
-        result = await redeem_position(pos["condition_id"], pos["outcome_index"])
+        result = await redeem_position(pos["condition_id"])
         merged = {**pos, **result, "dry_run": False}
         results.append(merged)
 
@@ -658,7 +658,18 @@ def register(application) -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
     async def _error_handler(update, context):
-        log.error("Telegram error: %s", context.error)
-        # Don't re-raise — just log it so the bot keeps running
+        import traceback
+        err_text = "".join(traceback.format_exception(type(context.error), context.error, context.error.__traceback__))
+        log.error("Unhandled Telegram error:\n%s", err_text)
+        try:
+            if cfg.TELEGRAM_CHAT_ID:
+                short = err_text[-800:] if len(err_text) > 800 else err_text
+                await context.bot.send_message(
+                    chat_id=int(cfg.TELEGRAM_CHAT_ID),
+                    text=f"&#x26A0;&#xFE0F; <b>Unhandled Bot Error</b>\n<pre>{short}</pre>",
+                    parse_mode="HTML",
+                )
+        except Exception:
+            log.exception("Failed to send error notification to Telegram")
 
     application.add_error_handler(_error_handler)

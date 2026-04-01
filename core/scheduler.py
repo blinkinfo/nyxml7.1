@@ -257,8 +257,15 @@ async def _auto_redeem_job() -> None:
 
     try:
         results = await scan_and_redeem(wallet, dry_run=False)
-    except Exception:
-        log.exception("auto_redeem_job: scan_and_redeem raised an exception")
+    except Exception as exc:
+        import traceback as _tb
+        tb_str = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+        log.error("auto_redeem_job: scan_and_redeem raised an exception:\n%s", tb_str)
+        short = tb_str[-800:] if len(tb_str) > 800 else tb_str
+        await _send_telegram(
+            f"&#x26A0;&#xFE0F; <b>Auto-Redeem Error</b>\n"
+            f"scan_and_redeem failed:\n<pre>{short}</pre>"
+        )
         return
 
     if not results:
@@ -298,7 +305,18 @@ async def _auto_redeem_job() -> None:
                 r.get("condition_id"),
             )
 
-    # Notify Telegram
+    # Notify Telegram — send individual alerts for failed redemptions
+    for r in new_results:
+        if not r.get("success"):
+            err = r.get("error") or "unknown error"
+            tb = r.get("traceback", "")
+            detail = tb[-600:] if tb else err[:200]
+            title = (r.get("title") or r.get("condition_id", "?"))[:55]
+            await _send_telegram(
+                f"&#x26A0;&#xFE0F; <b>Redemption Failed</b>\n"
+                f"{title}\n<pre>{detail}</pre>"
+            )
+
     msg = format_auto_redeem_notification(new_results)
     await _send_telegram(msg)
     log.info(

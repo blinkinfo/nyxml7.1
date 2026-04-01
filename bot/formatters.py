@@ -303,7 +303,7 @@ def format_redeem_results(results: list[dict]) -> str:
             lines.append(f"\u2705 {i}. {title}")
             lines.append(f"   {size:.4f} shares  tx: <code>{short_tx}</code>{gas_str}")
         else:
-            err = (r.get("error") or "unknown error")[:80]
+            err = (r.get("error") or "unknown error")[:200]
             lines.append(f"\u274c {i}. {title}")
             lines.append(f"   Error: {err}")
     lines.append(SEP)
@@ -328,9 +328,34 @@ def format_auto_redeem_notification(results: list[dict]) -> str:
         lines.append(f"   tx: <code>{short_tx}</code>")
     for r in failed:
         title = (r.get("title") or r.get("condition_id", "?"))[:55]
-        err = (r.get("error") or "unknown")[:60]
+        err = (r.get("error") or "unknown")[:200]
         lines.append(f"\u274c {title}")
         lines.append(f"   {err}")
+    lines.append(SEP)
+    return "\n".join(lines)
+
+
+def format_error_alert(context: str, error: str, detail: str | None = None) -> str:
+    """Format a system-level error alert for Telegram.
+
+    Parameters
+    ----------
+    context : str
+        Where the error occurred (e.g. 'auto_redeem_job', 'fetch_positions').
+    error : str
+        Short error message.
+    detail : str | None
+        Optional full traceback or extended detail (truncated to 600 chars).
+    """
+    SEP = "\u2501" * 20
+    lines = [
+        f"\u26a0\ufe0f <b>Error \u2014 {context}</b>",
+        SEP,
+        f"<b>Error:</b> {error[:200]}",
+    ]
+    if detail:
+        short_detail = detail[-600:] if len(detail) > 600 else detail
+        lines.append(f"<pre>{short_detail}</pre>")
     lines.append(SEP)
     return "\n".join(lines)
 

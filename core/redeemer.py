@@ -100,7 +100,7 @@ async def fetch_positions(wallet_address: str) -> list[dict[str, Any]]:
     """Fetch all open positions for *wallet_address* from the Polymarket Data API.
 
     Returns a (possibly empty) list of position dicts on success.
-    Returns [] on any network / parse error (logged at ERROR level).
+    Raises RuntimeError on network failure or unexpected response shape.
 
     Each dict typically contains:
       asset, conditionId, outcomeIndex, size, currentValue,
@@ -112,9 +112,9 @@ async def fetch_positions(wallet_address: str) -> list[dict[str, Any]]:
             resp = await client.get(DATA_API_POSITIONS_URL, params=params)
             resp.raise_for_status()
             data = resp.json()
-    except Exception:
+    except Exception as exc:
         log.exception("Data API request failed for wallet=%s", wallet_address)
-        return []
+        raise RuntimeError(f"Data API request failed: {exc}") from exc
 
     if not isinstance(data, list):
         # Some API versions wrap in {"data": [...]}
@@ -122,8 +122,9 @@ async def fetch_positions(wallet_address: str) -> list[dict[str, Any]]:
             for key in ("data", "positions", "results"):
                 if isinstance(data.get(key), list):
                     return data[key]
-        log.error("Unexpected Data API response shape: %r", type(data))
-        return []
+        err = f"Unexpected Data API response shape: {type(data).__name__}"
+        log.error(err)
+        raise RuntimeError(err)
 
     return data
 
@@ -365,11 +366,14 @@ def _redeem_position_sync(
             }
 
     except Exception as exc:
+        import traceback as _tb
+        tb_str = _tb.format_exc()
         log.exception("Redemption failed for condition=%s", condition_id_hex)
         return {
             "success": False,
             "tx_hash": None,
-            "error": str(exc),
+            "error": f"{type(exc).__name__}: {exc}",
+            "error_detail": tb_str,
             "gas_used": None,
         }
 
