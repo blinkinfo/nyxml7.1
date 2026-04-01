@@ -322,7 +322,8 @@ async def _check_and_trade() -> None:
     )
 
     if not filter_result.allowed:
-        # Update the signal record to mark it as filter-blocked
+        # Mark signal as filter-blocked in DB — trade will be skipped,
+        # but we do NOT return here so resolution still happens (step 7).
         await queries.update_signal_filter_blocked(signal_id)
         msg = format_filter_blocked(
             side=side,
@@ -332,8 +333,6 @@ async def _check_and_trade() -> None:
             n2_side=filter_result.n2_side,
         )
         await _send_telegram(msg)
-        _schedule_next()
-        return
 
     # 4. Check autotrade
     autotrade = await queries.is_autotrade_enabled()
@@ -359,7 +358,10 @@ async def _check_and_trade() -> None:
     amount_usdc: float | None = None
     slot_label = f"{slot_start_str}-{slot_end_str}"
 
-    if autotrade and _poly_client is not None and token_id:
+    if not filter_result.allowed:
+        # Filter blocked — no trade placed, trade_id stays None
+        pass
+    elif autotrade and _poly_client is not None and token_id:
         amount_usdc = round(trade_amount, 2)
         trade_id = await queries.insert_trade(
             signal_id=signal_id,
