@@ -132,6 +132,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     demo_trade = await queries.is_demo_trade_enabled()
     demo_bankroll = await queries.get_demo_bankroll() if demo_trade else None
+    trade_mode = await queries.get_trade_mode()
+    trade_pct = await queries.get_trade_pct()
     text = format_status(
         connected=connected,
         balance=balance,
@@ -143,6 +145,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         auto_redeem=auto_redeem,
         demo_trade_enabled=demo_trade,
         demo_bankroll=demo_bankroll,
+        trade_mode=trade_mode,
+        trade_pct=trade_pct,
     )
     if update.callback_query:
         await update.callback_query.answer()
@@ -209,10 +213,12 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     autotrade = await queries.is_autotrade_enabled()
     auto_redeem = await queries.is_auto_redeem_enabled()
     trade_amount = await queries.get_trade_amount()
+    trade_mode = await queries.get_trade_mode()
+    trade_pct = await queries.get_trade_pct()
     demo_trade = await queries.is_demo_trade_enabled()
     demo_bankroll = await queries.get_demo_bankroll()
     text = "\u2699\ufe0f <b>Settings</b>\n\nTap a button to change:"
-    kb = settings_keyboard(autotrade, trade_amount, auto_redeem, demo_trade, demo_bankroll)
+    kb = settings_keyboard(autotrade, trade_amount, auto_redeem, demo_trade, demo_bankroll, trade_mode, trade_pct)
     if update.callback_query:
         await update.callback_query.answer()
         await _safe_edit(update.callback_query, text, reply_markup=kb)
@@ -456,14 +462,35 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer(f"Auto-Redeem {new_state}")
         await cmd_settings(update, context)
 
+    elif data == "toggle_trade_mode":
+        current_mode = await queries.get_trade_mode()
+        new_mode = "pct" if current_mode == "fixed" else "fixed"
+        await queries.set_setting("trade_mode", new_mode)
+        await query.answer(f"Trade mode switched to {new_mode.upper()}")
+        await cmd_settings(update, context)
+
     elif data == "change_amount":
         await query.answer()
-        await _safe_edit(
-            query,
-            "\U0001f4b5 <b>Set Trade Amount</b>\n\n"
-            "Type the new amount in USDC (e.g. <code>2.50</code>):",
-        )
-        context.user_data["awaiting_amount"] = True
+        trade_mode = await queries.get_trade_mode()
+        trade_pct = await queries.get_trade_pct()
+        trade_amount = await queries.get_trade_amount()
+        if trade_mode == "pct":
+            await _safe_edit(
+                query,
+                f"\U0001f522 <b>Set Trade Percentage</b>\n\n"
+                f"Current: <b>{trade_pct:.1f}%</b>\n\n"
+                "Type the percentage to use per trade (e.g. <code>5</code> for 5%).\n"
+                "<i>Minimum trade is always $1.00 (Polymarket limit).</i>",
+            )
+            context.user_data["awaiting_trade_pct"] = True
+        else:
+            await _safe_edit(
+                query,
+                f"\U0001f4b5 <b>Set Trade Amount</b>\n\n"
+                f"Current: <b>${trade_amount:.2f}</b>\n\n"
+                "Type the new amount in USDC (e.g. <code>2.50</code>):",
+            )
+            context.user_data["awaiting_amount"] = True
 
     elif data == "download_csv":
         await cmd_download_csv(update, context)
@@ -594,6 +621,42 @@ async def _handle_redeem_confirm(update: Update, context: ContextTypes.DEFAULT_T
 
 @auth_check
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # -- Trade percentage input ----------------------------------------------------
+    if context.user_data.get("awaiting_trade_pct"):
+        context.user_data["awaiting_trade_pct"] = False
+        raw = update.message.text.strip().replace("%", "")
+        try:
+            pct = float(raw)
+            if pct <= 0 or pct > 100:
+                raise ValueError("out of range")
+        except ValueError:
+            await update.message.reply_text(
+                "\u274c Invalid percentage. Please enter a number between 0.1 and 100 (e.g. <code>5</code>).",
+                parse_mode="HTML",
+            )
+            return
+        pct = round(pct, 2)
+        await queries.set_setting("trade_pct", str(pct))
+        await update.message.reply_text(
+            f"\u2705 Trade percentage set to <b>{pct:.2f}%</b>\n"
+            f"<i>Minimum trade is always $1.00 (Polymarket limit).</i>",
+            parse_mode="HTML",
+        )
+        # Refresh settings panel
+        autotrade = await queries.is_autotrade_enabled()
+        auto_redeem = await queries.is_auto_redeem_enabled()
+        trade_amount = await queries.get_trade_amount()
+        trade_mode = await queries.get_trade_mode()
+        demo_trade = await queries.is_demo_trade_enabled()
+        demo_bankroll = await queries.get_demo_bankroll()
+        kb = settings_keyboard(autotrade, trade_amount, auto_redeem, demo_trade, demo_bankroll, trade_mode, pct)
+        await update.message.reply_text(
+            "\u2699\ufe0f <b>Settings</b>",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+        return
+
     # -- Demo bankroll input -------------------------------------------------------
     if context.user_data.get("awaiting_demo_bankroll"):
         context.user_data["awaiting_demo_bankroll"] = False
@@ -616,8 +679,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # Refresh settings panel
         autotrade = await queries.is_autotrade_enabled()
         auto_redeem = await queries.is_auto_redeem_enabled()
+        trade_mode = await queries.get_trade_mode()
+        trade_pct = await queries.get_trade_pct()
         demo_trade = await queries.is_demo_trade_enabled()
-        kb = settings_keyboard(autotrade, await queries.get_trade_amount(), auto_redeem, demo_trade, amount)
+        kb = settings_keyboard(autotrade, await queries.get_trade_amount(), auto_redeem, demo_trade, amount, trade_mode, trade_pct)
         await update.message.reply_text(
             "\u2699\ufe0f <b>Settings</b>",
             reply_markup=kb,
@@ -650,9 +715,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Show settings panel again
     autotrade = await queries.is_autotrade_enabled()
     auto_redeem = await queries.is_auto_redeem_enabled()
+    trade_mode = await queries.get_trade_mode()
+    trade_pct = await queries.get_trade_pct()
     demo_trade = await queries.is_demo_trade_enabled()
     demo_bankroll = await queries.get_demo_bankroll()
-    kb = settings_keyboard(autotrade, amount, auto_redeem, demo_trade, demo_bankroll)
+    kb = settings_keyboard(autotrade, amount, auto_redeem, demo_trade, demo_bankroll, trade_mode, trade_pct)
     await update.message.reply_text(
         "\u2699\ufe0f <b>Settings</b>",
         reply_markup=kb,

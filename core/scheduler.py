@@ -421,7 +421,10 @@ async def _check_and_trade() -> None:
 
     # 4. Check autotrade
     autotrade = await queries.is_autotrade_enabled()
-    trade_amount = await queries.get_trade_amount()
+    trade_amount, _amount_label = await queries.resolve_trade_amount(
+        poly_client=_poly_client,
+        is_demo=demo_trade_enabled,
+    )
 
     # 5. Send signal notification
     msg = format_signal(

@@ -34,6 +34,8 @@ TELEGRAM_CHAT_ID: str | None = os.getenv("TELEGRAM_CHAT_ID")
 # Trading
 # ---------------------------------------------------------------------------
 TRADE_AMOUNT_USDC: float = float(os.getenv("TRADE_AMOUNT_USDC", "1.0"))
+TRADE_MODE: str = os.getenv("TRADE_MODE", "fixed")  # "fixed" or "pct"
+TRADE_PCT: float = float(os.getenv("TRADE_PCT", "5.0"))
 
 # ---------------------------------------------------------------------------
 # FOK Retry Settings

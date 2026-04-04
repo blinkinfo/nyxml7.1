@@ -45,6 +45,97 @@ async def get_trade_amount() -> float:
     return float(val) if val else cfg.TRADE_AMOUNT_USDC
 
 
+async def get_trade_mode() -> str:
+    """Return 'fixed' or 'pct'."""
+    val = await get_setting("trade_mode")
+    return val if val in ("fixed", "pct") else "fixed"
+
+
+async def get_trade_pct() -> float:
+    """Return the percentage value for pct mode (e.g. 5.0 for 5%)."""
+    val = await get_setting("trade_pct")
+    try:
+        pct = float(val) if val else cfg.TRADE_PCT
+        return pct if 0 < pct <= 100 else cfg.TRADE_PCT
+    except (ValueError, TypeError):
+        return cfg.TRADE_PCT
+
+
+async def resolve_trade_amount(poly_client=None, is_demo: bool = False) -> tuple[float, str]:
+    """Resolve the trade amount based on current trade_mode setting.
+
+    Returns (amount_usdc, display_label) where:
+    - amount_usdc: the resolved float amount to trade
+    - display_label: human-readable string for notifications/logs
+
+    In 'pct' mode:
+    - Fetches live balance (real or demo bankroll)
+    - Applies percentage, floors at $1.00 minimum
+    - Falls back to fixed amount if balance fetch fails
+
+    In 'fixed' mode (default):
+    - Returns get_trade_amount() unchanged (zero behavior change)
+    """
+    import logging
+    log = logging.getLogger(__name__)
+
+    mode = await get_trade_mode()
+    fixed_amount = await get_trade_amount()
+
+    if mode == "fixed":
+        return fixed_amount, f"${fixed_amount:.2f} (fixed)"
+
+    # PCT mode
+    pct = await get_trade_pct()
+
+    try:
+        if is_demo:
+            balance = await get_demo_bankroll()
+        else:
+            if poly_client is None:
+                log.warning(
+                    "resolve_trade_amount: pct mode but poly_client is None — "
+                    "falling back to fixed amount $%.2f", fixed_amount
+                )
+                return fixed_amount, f"${fixed_amount:.2f} (fixed, fallback)"
+
+            from polymarket import account as pm_account
+            balance = await pm_account.get_balance(poly_client)
+
+            if balance is None:
+                log.warning(
+                    "resolve_trade_amount: balance fetch returned None — "
+                    "falling back to fixed amount $%.2f", fixed_amount
+                )
+                return fixed_amount, f"${fixed_amount:.2f} (fixed, fallback)"
+
+    except Exception as exc:
+        log.warning(
+            "resolve_trade_amount: balance fetch failed (%s) — "
+            "falling back to fixed amount $%.2f", exc, fixed_amount
+        )
+        return fixed_amount, f"${fixed_amount:.2f} (fixed, fallback)"
+
+    if balance <= 0:
+        log.warning(
+            "resolve_trade_amount: balance is $%.2f (zero/negative) — "
+            "using $1.00 minimum floor", balance
+        )
+        return 1.0, f"$1.00 ({pct:.1f}% of ${balance:.2f}, floor applied)"
+
+    raw = balance * (pct / 100.0)
+    amount = max(1.0, round(raw, 2))
+    label = f"${amount:.2f} ({pct:.1f}% of ${balance:.2f})"
+    if raw < 1.0:
+        label += " [floor $1.00]"
+
+    log.info(
+        "resolve_trade_amount: pct mode — balance=$%.2f pct=%.1f%% raw=$%.2f final=$%.2f",
+        balance, pct, raw, amount,
+    )
+    return amount, label
+
+
 async def is_auto_redeem_enabled() -> bool:
     """Return True if auto-redeem is toggled on in settings."""
     val = await get_setting("auto_redeem_enabled")

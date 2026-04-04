@@ -43,13 +43,24 @@ def settings_keyboard(
     auto_redeem_on: bool = False,
     demo_trade_on: bool = False,
     demo_bankroll: float = 1000.00,
+    trade_mode: str = "fixed",
+    trade_pct: float = 5.0,
 ) -> InlineKeyboardMarkup:
     at_label = "\U0001f916 AutoTrade: ON" if autotrade_on else "\U0001f916 AutoTrade: OFF"
     ar_label = "\U0001f4b0 Auto-Redeem: ON" if auto_redeem_on else "\U0001f4b0 Auto-Redeem: OFF"
     dt_label = "\U0001f9ea Demo Trade: ON" if demo_trade_on else "\U0001f9ea Demo Trade: OFF"
+
+    if trade_mode == "pct":
+        mode_label = f"\U0001f4b5 Trade Mode: PCT | {trade_pct:.1f}%"
+        amount_label = f"\U0001f522 Set Percentage: {trade_pct:.1f}%"
+    else:
+        mode_label = f"\U0001f4b5 Trade Mode: FIXED | ${trade_amount:.2f}"
+        amount_label = f"\U0001f4b5 Set Amount: ${trade_amount:.2f}"
+
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(at_label, callback_data="toggle_autotrade")],
-        [InlineKeyboardButton(f"\U0001f4b5 Trade Amount: ${trade_amount:.2f}", callback_data="change_amount")],
+        [InlineKeyboardButton(mode_label, callback_data="toggle_trade_mode")],
+        [InlineKeyboardButton(amount_label, callback_data="change_amount")],
         [InlineKeyboardButton(ar_label, callback_data="toggle_auto_redeem")],
         [InlineKeyboardButton(dt_label, callback_data="toggle_demo_trade")],
         [InlineKeyboardButton(f"\U0001f4b0 Demo Bankroll: ${demo_bankroll:.2f}", callback_data="set_demo_bankroll")],

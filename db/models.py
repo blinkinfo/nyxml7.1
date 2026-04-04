@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS redemptions (
 DEFAULT_SETTINGS = {
     "autotrade_enabled": "false",
     "trade_amount_usdc": str(cfg.TRADE_AMOUNT_USDC),
+    "trade_mode": cfg.TRADE_MODE,
+    "trade_pct": str(cfg.TRADE_PCT),
     "auto_redeem_enabled": "false",
     "demo_trade_enabled": "false",
     "demo_bankroll_usdc": "1000.00",

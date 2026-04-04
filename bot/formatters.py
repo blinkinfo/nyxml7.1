@@ -417,6 +417,8 @@ def format_status(
     auto_redeem: bool = False,
     demo_trade_enabled: bool = False,
     demo_bankroll: float | None = None,
+    trade_mode: str = "fixed",
+    trade_pct: float = 5.0,
 ) -> str:
     conn_icon = "\U0001f7e2" if connected else "\U0001f534"
     conn_text = "Connected" if connected else "Disconnected"
@@ -435,7 +437,7 @@ def format_status(
         f"\U0001f4b0 Balance: {bal_text}",
         SEP,
         f"\U0001f916 AutoTrade: {at_text}",
-        f"\U0001f4b5 Trade Amount: ${trade_amount:.2f}",
+        f"\U0001f4b5 Trade Mode: {'PCT ' + str(trade_pct) + '%' if trade_mode == 'pct' else 'FIXED $' + f'{trade_amount:.2f}'}",
         f"\U0001f4ca Open Positions: {open_positions}",
         f"\U0001f4b0 Auto-Redeem: {ar_text}",
         SEP,
