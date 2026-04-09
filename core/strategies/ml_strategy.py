@@ -43,6 +43,28 @@ class MLStrategy(BaseStrategy):
         self._funding_buffer: deque = deque(maxlen=24)
         self._model_slot = "current"
         self._load_model()
+        self._seed_funding_buffer()
+
+    def _seed_funding_buffer(self) -> None:
+        """Seed the funding buffer with historical data on startup.
+
+        Without seeding, the buffer starts empty and zscore is undefined for the
+        first 8 days of operation (24 periods * 8h each). This pre-fills the buffer
+        from MEXC historical funding so zscore is valid from the very first inference.
+        """
+        try:
+            history = data_fetcher.fetch_live_funding_history(n_periods=24)
+            if history:
+                for rate in history:
+                    self._funding_buffer.append(rate)
+                log.info(
+                    "MLStrategy: seeded funding_buffer with %d historical records",
+                    len(self._funding_buffer),
+                )
+            else:
+                log.warning("MLStrategy: could not seed funding_buffer — no historical data returned")
+        except Exception as exc:
+            log.warning("MLStrategy: funding_buffer seed failed: %s", exc)
 
     def _load_model(self) -> None:
         """Load the current model from disk."""
@@ -135,20 +157,28 @@ class MLStrategy(BaseStrategy):
             prob = float(self._model.predict(feature_row)[0])
             threshold = await self._get_threshold()
 
-            log.info(
-                "MLStrategy: prob=%.4f threshold=%.3f slot=%s",
-                prob, threshold, slot_n1["slug"],
-            )
+            # Determine direction per BLUEPRINT Section 11.1 Step 5:
+            #   UP   if prob >= threshold          (class 1: price goes up)
+            #   DOWN if (1 - prob) >= threshold    (class 0: price goes down, high confidence)
+            #   No trade if neither condition is met
+            up_confidence   = prob
+            down_confidence = 1.0 - prob
 
-            if prob < threshold:
+            if up_confidence >= threshold:
+                side = "Up"
+            elif down_confidence >= threshold:
+                side = "Down"
+            else:
                 return {
                     **base_fields,
                     "pattern": f"p={prob:.4f}<{threshold:.3f}",
-                    "reason": f"Below threshold (p={prob:.4f})",
+                    "reason": f"Below threshold (p={prob:.4f}, 1-p={down_confidence:.4f})",
                 }
 
-            # prob >= threshold >= 0.50 => model predicts class 1 (price UP)
-            side = "Up"
+            log.info(
+                "MLStrategy: side=%s prob=%.4f 1-prob=%.4f threshold=%.3f slot=%s",
+                side, prob, down_confidence, threshold, slot_n1["slug"],
+            )
 
             # Fetch Polymarket prices — identical to PatternStrategy
             prices = await get_slot_prices(slot_n1["slug"])

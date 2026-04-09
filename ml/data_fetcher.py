@@ -321,6 +321,31 @@ def fetch_live_funding() -> float | None:
         return None
 
 
+def fetch_live_funding_history(n_periods: int = 24) -> list[float]:
+    """Fetch the last `n_periods` historical funding rates for seeding the zscore buffer.
+
+    MEXC funding is every 8 hours (3/day). 24 periods = 8 days of history.
+    Returns a list of floats sorted oldest-first, ready to populate a deque(maxlen=24).
+    """
+    # 24 periods * 8h = 192h back; add margin to ensure we get enough records
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(hours=(n_periods + 4) * 8)
+    start_ms = int(start.timestamp() * 1000)
+    end_ms = int(now.timestamp() * 1000)
+
+    try:
+        df = fetch_funding(start_ms, end_ms)
+        if df.empty:
+            return []
+        # Return the last n_periods values, oldest-first
+        rates = df["funding_rate"].tail(n_periods).tolist()
+        log.info("fetch_live_funding_history: fetched %d records for buffer seed", len(rates))
+        return rates
+    except Exception as e:
+        log.warning("fetch_live_funding_history error: %s", e)
+        return []
+
+
 def fetch_live_cvd(n_candles: int = 25) -> pd.DataFrame:
     """Fetch last `n_candles` 5m candles from MEXC futures REST and compute CVD proxy."""
     end_sec = int(time.time())

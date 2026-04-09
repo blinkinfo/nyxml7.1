@@ -253,10 +253,29 @@ def build_live_features(
     lower_wick_n1 = (min(safe(df5["open"], 1), safe(df5["close"], 1)) - safe(df5["low"], 1)) / atr5_val
     lower_wick_n2 = (min(safe(df5["open"], 2), safe(df5["close"], 2)) - safe(df5["low"], 2)) / safe(atr5, 2)
 
-    vol_window = min(20, len(df5))
     vol_series = df5["volume"].values
-    vol_ratio_n1 = vol_series[-2] / np.mean(vol_series[-vol_window - 1:-1]) if vol_window > 0 and len(vol_series) >= 2 else np.nan
-    vol_ratio_n2 = vol_series[-3] / np.mean(vol_series[-vol_window - 2:-2]) if vol_window > 0 and len(vol_series) >= 3 else np.nan
+    # volume_ratio_n1: N-1 volume divided by rolling mean of 20 candles ending at N-2
+    # Matches training: vol_mean = df['volume'].shift(1).rolling(20).mean()
+    # which at row i gives mean of vol[i-2]..vol[i-21] — N-1 candle excluded from its own mean.
+    # In the live array (last index = N, second-to-last = N-1):
+    #   N-1 candle value : vol_series[-2]
+    #   Mean window for N-1: vol_series[-22:-2]  (up to and excluding N-1)
+    #   N-2 candle value : vol_series[-3]
+    #   Mean window for N-2: vol_series[-23:-3]  (up to and excluding N-2)
+    if len(vol_series) >= 22:
+        vol_ratio_n1 = vol_series[-2] / np.mean(vol_series[-22:-2])
+    elif len(vol_series) >= 4:
+        # Fewer than 20 prior candles available — use what we have (graceful degradation)
+        vol_ratio_n1 = vol_series[-2] / np.mean(vol_series[:-2]) if len(vol_series) > 2 else np.nan
+    else:
+        vol_ratio_n1 = np.nan
+
+    if len(vol_series) >= 23:
+        vol_ratio_n2 = vol_series[-3] / np.mean(vol_series[-23:-3])
+    elif len(vol_series) >= 5:
+        vol_ratio_n2 = vol_series[-3] / np.mean(vol_series[:-3]) if len(vol_series) > 3 else np.nan
+    else:
+        vol_ratio_n2 = np.nan
 
     # 15m features
     if len(df15) >= 14:
@@ -271,8 +290,10 @@ def build_live_features(
                 if pd.notna(atr15_val) and atr15_val > 0:
                     body_ratio_15m = (df15["close"].iloc[idx15] - df15["open"].iloc[idx15]) / atr15_val
                     dir_15m = np.sign(df15["close"].iloc[idx15] - df15["open"].iloc[idx15])
-                    vol15_window = min(20, idx15 + 1)
-                    vol_ratio_15m = df15["volume"].iloc[idx15] / df15["volume"].iloc[max(0, idx15 - vol15_window):idx15].mean() if vol15_window > 0 else np.nan
+                    # volume_ratio_15m: matches training exactly — rolling(20).mean() on the full 15m series
+                    vol15_rolling_mean = df15["volume"].rolling(20).mean()
+                    vol15_mean_val = vol15_rolling_mean.iloc[idx15]
+                    vol_ratio_15m = df15["volume"].iloc[idx15] / vol15_mean_val if pd.notna(vol15_mean_val) and vol15_mean_val > 0 else np.nan
                 else:
                     body_ratio_15m = dir_15m = vol_ratio_15m = np.nan
             else:
@@ -355,7 +376,8 @@ def build_live_features(
         delta_ratio, cvd_delta, cvd_5, cvd_20, cvd_trend,
     ]], dtype=np.float64)
 
-    if np.isnan(row).all():
+    if np.isnan(row).any():
+        log.warning("build_live_features: NaN in feature row, skipping inference")
         return None
 
     return row
