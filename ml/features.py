@@ -116,9 +116,15 @@ def build_features(
         df5[["open", "close"]].shift(2).min(axis=1) - df5["low"].shift(2)
     ) / atr5.shift(2)
 
-    vol_mean_n1 = df5["volume"].shift(1).rolling(20).mean()
+    # volume_ratio_n1: N-1 volume divided by rolling mean of the 20 candles
+    # ending at N-2 (i.e. vol[i-2]..vol[i-21]).
+    # shift(2).rolling(20) at row i = mean of vol[i-2]..vol[i-21] — N-1 candle
+    # is deliberately excluded from its own mean, matching the live formula
+    # vol_series[-22:-2] and the blueprint Section 5 English spec.
+    vol_mean_n1 = df5["volume"].shift(2).rolling(20).mean()
     df5["volume_ratio_n1"] = df5["volume"].shift(1) / vol_mean_n1
-    vol_mean_n2 = df5["volume"].shift(2).rolling(20).mean()
+    # volume_ratio_n2: N-2 volume divided by rolling mean of vol[i-3]..vol[i-22]
+    vol_mean_n2 = df5["volume"].shift(3).rolling(20).mean()
     df5["volume_ratio_n2"] = df5["volume"].shift(2) / vol_mean_n2
 
     # ts_n1 = N-1 timestamp (shift by 1 for all multi-tf merges)
@@ -255,7 +261,7 @@ def build_live_features(
 
     vol_series = df5["volume"].values
     # volume_ratio_n1: N-1 volume divided by rolling mean of 20 candles ending at N-2
-    # Matches training: vol_mean = df['volume'].shift(1).rolling(20).mean()
+    # Matches training: vol_mean = df['volume'].shift(2).rolling(20).mean()
     # which at row i gives mean of vol[i-2]..vol[i-21] — N-1 candle excluded from its own mean.
     # In the live array (last index = N, second-to-last = N-1):
     #   N-1 candle value : vol_series[-2]

@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, '/home/nebula/nyxtest4')
 
 from ml.features import compute_atr14, FEATURE_COLS
+import config as cfg
 
 
 def make_ohlcv(n=100, seed=42):
@@ -76,3 +77,36 @@ def test_train_val_test_split():
     assert val_start == 600
     assert n - train_end == 250
     assert train_end - val_start == 150
+
+
+def test_default_threshold_matches_blueprint():
+    """Blueprint Section 9: recommended threshold is 0.590.
+    This test will catch any future accidental regression of the default."""
+    assert cfg.ML_DEFAULT_THRESHOLD == 0.590, (
+        f"ML_DEFAULT_THRESHOLD is {cfg.ML_DEFAULT_THRESHOLD}, expected 0.590 "
+        "(Blueprint Section 9 recommended threshold)"
+    )
+
+
+def test_volume_ratio_n1_excludes_self_from_mean():
+    """volume_ratio_n1 = volume[i-1] / mean(volume[i-2]..volume[i-21]).
+    The N-1 candle must NOT appear in its own rolling mean denominator.
+    Training formula: shift(2).rolling(20) at row i = mean of [i-2..i-21].
+    Live formula:     vol_series[-22:-2]            = mean of [i-2..i-21].
+    Both must be identical — this test verifies the training-side formula.
+    """
+    df = make_ohlcv(60)
+    # Compute training formula
+    vol_mean_train = df['volume'].shift(2).rolling(20).mean()
+    ratio_train = df['volume'].shift(1) / vol_mean_train
+
+    # Compute live formula manually at the last row
+    vol = df['volume'].values
+    # Last row index = 59 (i=59), N-1 = index 58, mean window = [57..38]
+    live_mean = np.mean(vol[38:58])   # indices 38..57 inclusive = vol[-22:-2] of 60-row array
+    live_ratio = vol[58] / live_mean
+
+    train_ratio_last = ratio_train.iloc[59]
+    assert abs(train_ratio_last - live_ratio) < 1e-10, (
+        f"Train/live volume_ratio_n1 mismatch: train={train_ratio_last:.8f} live={live_ratio:.8f}"
+    )

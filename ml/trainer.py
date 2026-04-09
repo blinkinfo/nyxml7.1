@@ -17,6 +17,17 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 from ml import model_store
 from ml.features import FEATURE_COLS
 
+# ---------------------------------------------------------------------------
+# Deployment gate — Blueprint Rule 10
+# ---------------------------------------------------------------------------
+
+class DeploymentBlockedError(Exception):
+    """Raised when the trained model fails to meet the minimum test-set WR.
+
+    Blueprint Rule 10: ALWAYS validate that test set WR >= 59% before
+    deploying. If a new retrain fails to hit 59% on test, do not deploy.
+    """
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -234,6 +245,26 @@ def train(df_features: pd.DataFrame, slot: str = "current") -> dict:
         "train: val_wr=%.4f threshold=%.3f | test_wr=%.4f test_trades=%d",
         best_wr, best_threshold, test_metrics["wr"], test_metrics["trades"],
     )
+
+    # -----------------------------------------------------------------------
+    # Deployment gate — Blueprint Rule 10
+    # ALWAYS validate test WR >= 59% before saving/deploying.
+    # If the model fails this gate, raise DeploymentBlockedError so the
+    # caller can handle it (log, alert, keep old model) rather than silently
+    # deploying an underperforming model.
+    # -----------------------------------------------------------------------
+    MIN_DEPLOY_WR = 0.59
+    if test_metrics["wr"] < MIN_DEPLOY_WR:
+        log.critical(
+            "DEPLOYMENT BLOCKED: test_wr=%.4f is below minimum %.2f "
+            "(Blueprint Rule 10). Model NOT saved. Investigate data quality "
+            "or wait for a better market regime before retraining.",
+            test_metrics["wr"], MIN_DEPLOY_WR,
+        )
+        raise DeploymentBlockedError(
+            f"Test WR {test_metrics['wr']:.4f} < {MIN_DEPLOY_WR} — "
+            "model does not meet deployment standard (Blueprint Rule 10)."
+        )
 
     # Save model and metadata
     metadata = {

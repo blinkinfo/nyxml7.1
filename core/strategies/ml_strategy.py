@@ -178,26 +178,22 @@ class MLStrategy(BaseStrategy):
             threshold = await self._get_threshold()
 
             # Determine direction per BLUEPRINT Section 11.1 Step 5:
-            #   UP   if prob >= threshold          (class 1: price goes up)
-            #   DOWN if (1 - prob) >= threshold    (class 0: price goes down, high confidence)
-            #   No trade if neither condition is met
-            up_confidence   = prob
-            down_confidence = 1.0 - prob
-
-            if up_confidence >= threshold:
+            #   Trade UP if prob >= threshold (class 1: price goes up).
+            #   Skip otherwise — DOWN trades were NOT backtested and are not
+            #   part of the blueprint. The threshold sweep was performed on
+            #   P(up) only; applying it to (1-p) for DOWN is unvalidated.
+            if prob >= threshold:
                 side = "Up"
-            elif down_confidence >= threshold:
-                side = "Down"
             else:
                 return {
                     **base_fields,
                     "pattern": f"p={prob:.4f}<{threshold:.3f}",
-                    "reason": f"Below threshold (p={prob:.4f}, 1-p={down_confidence:.4f})",
+                    "reason": f"Below threshold (p={prob:.4f})",
                 }
 
             log.info(
-                "MLStrategy: side=%s prob=%.4f 1-prob=%.4f threshold=%.3f slot=%s",
-                side, prob, down_confidence, threshold, slot_n1["slug"],
+                "MLStrategy: side=%s prob=%.4f threshold=%.3f slot=%s",
+                side, prob, threshold, slot_n1["slug"],
             )
 
             # Fetch Polymarket prices — identical to PatternStrategy
