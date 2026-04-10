@@ -199,9 +199,9 @@ def build_features(
     # Funding features
     # -----------------------------------------------------------------------
     funding["funding_zscore"] = (
-        funding["funding_rate"] - funding["funding_rate"].rolling(24).mean()
-    ) / funding["funding_rate"].rolling(24).std()
-    funding.loc[funding["funding_rate"].rolling(24).std() == 0, "funding_zscore"] = np.nan
+        funding["funding_rate"] - funding["funding_rate"].rolling(24, min_periods=2).mean()
+    ) / funding["funding_rate"].rolling(24, min_periods=2).std()
+    funding.loc[funding["funding_rate"].rolling(24, min_periods=2).std() == 0, "funding_zscore"] = np.nan
 
     rf = _asof_backward(ts_n1, funding, ["funding_rate", "funding_zscore"])
     df5["funding_rate"] = rf["funding_rate"].values
@@ -358,8 +358,8 @@ def build_live_features(
                 if pd.notna(atr15_val) and atr15_val > 0:
                     body_ratio_15m = (df15["close"].iloc[idx15] - df15["open"].iloc[idx15]) / atr15_val
                     dir_15m = np.sign(df15["close"].iloc[idx15] - df15["open"].iloc[idx15])
-                    # volume_ratio_15m: matches training exactly — rolling(20).mean() on the full 15m series
-                    vol15_rolling_mean = df15["volume"].rolling(20).mean()
+                    # volume_ratio_15m: matches training — rolling(20, min_periods=2).mean()
+                    vol15_rolling_mean = df15["volume"].rolling(20, min_periods=2).mean()
                     vol15_mean_val = vol15_rolling_mean.iloc[idx15]
                     vol_ratio_15m = df15["volume"].iloc[idx15] / vol15_mean_val if pd.notna(vol15_mean_val) and vol15_mean_val > 0 else np.nan
                 else:
@@ -379,12 +379,19 @@ def build_live_features(
             mask1h = df1h["timestamp"] <= ts_n1
             if mask1h.any():
                 idx1h = df1h[mask1h].index[-1]
-                atr1h_val = atr1h.iloc[idx1h]
+                # Scan forward from idx1h to find a row with valid ATR (warmup may cause NaN)
+                atr1h_val = np.nan
+                valid_idx1h = idx1h
+                for _i in range(idx1h, len(df1h)):
+                    if pd.notna(atr1h.iloc[_i]) and atr1h.iloc[_i] > 0:
+                        atr1h_val = atr1h.iloc[_i]
+                        valid_idx1h = _i
+                        break
                 if pd.notna(atr1h_val) and atr1h_val > 0:
-                    body_ratio_1h = (df1h["close"].iloc[idx1h] - df1h["open"].iloc[idx1h]) / atr1h_val
-                    dir_1h = np.sign(df1h["close"].iloc[idx1h] - df1h["open"].iloc[idx1h])
+                    body_ratio_1h = (df1h["close"].iloc[valid_idx1h] - df1h["open"].iloc[valid_idx1h]) / atr1h_val
+                    dir_1h = np.sign(df1h["close"].iloc[valid_idx1h] - df1h["open"].iloc[valid_idx1h])
                     ema9 = df1h["close"].ewm(span=9, adjust=False).mean()
-                    ema9_slope_1h = (ema9.iloc[idx1h] - ema9.iloc[idx1h - 1]) / atr1h_val if idx1h > 0 else np.nan
+                    ema9_slope_1h = (ema9.iloc[valid_idx1h] - ema9.iloc[valid_idx1h - 1]) / atr1h_val if valid_idx1h > 0 else np.nan
                 else:
                     body_ratio_1h = dir_1h = ema9_slope_1h = np.nan
             else:
@@ -450,6 +457,7 @@ def build_live_features(
         if pd.notna(atr_n1):
             # Use up to _ATR_WINDOW prior values (excluding N-1 itself for percentile rank)
             window_vals = atr5_arr[max(0, len(atr5_arr)-_ATR_WINDOW-1):-2]  # values before N-1
+            window_vals = window_vals[~np.isnan(window_vals)]  # strip ATR warmup NaNs
             if len(window_vals) >= 1:
                 atr_percentile_24h = float(np.sum(window_vals < atr_n1)) / max(len(window_vals), 1)
             else:
@@ -459,6 +467,7 @@ def build_live_features(
                 w_std  = float(np.std(window_vals))
                 vol_regime = (atr_n1 - w_mean) / max(w_std, 1e-10)
             else:
+                vol_regime = np.nan
                 vol_regime = np.nan
         else:
             atr_percentile_24h = np.nan
