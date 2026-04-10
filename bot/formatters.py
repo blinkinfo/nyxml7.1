@@ -705,42 +705,44 @@ def format_pattern_stats(rows: list[dict[str, Any]]) -> str:
 def format_model_status(slot: str, meta: dict, threshold: float) -> str:
     """Show model status summary including DOWN validation results."""
     down_enabled = meta.get("down_enabled", False)
-    down_icon = "\u2705" if down_enabled else "\u274c"
-    down_thr = meta.get("down_threshold", round(1.0 - threshold, 4))
-    down_val_wr = meta.get("down_val_wr")
+    down_thr     = meta.get("down_threshold", round(1.0 - threshold, 4))
+    down_val_wr  = meta.get("down_val_wr")
     down_test_wr = meta.get("down_test_wr")
-    down_tpd = meta.get("down_test_tpd", meta.get("down_val_tpd", 0))
+    down_tpd     = meta.get("down_test_tpd", meta.get("down_val_tpd", 0))
 
-    # Build DOWN detail line
+    up_gate_pct  = meta.get("test_wr", 0) * 100
+    up_gate_icon = "\u2705" if up_gate_pct >= 59.0 else "\u274c"
+    up_gate_lbl  = "PASS" if up_gate_pct >= 59.0 else "FAIL"
+
     if down_val_wr is not None and down_test_wr is not None:
-        down_detail = (
-            f"DOWN        : {down_icon} {'ENABLED' if down_enabled else 'DISABLED'}  "
-            f"thr={down_thr:.3f}  val={down_val_wr*100:.2f}%  test={down_test_wr*100:.2f}%  "
-            f"tpd={down_tpd:.1f}"
+        down_status_lbl = "ENABLED" if down_enabled else "DISABLED"
+        down_status_icon = "\u2705" if down_enabled else "\u26d4"
+        down_section = (
+            f"\u2502 \u2193 DOWN Side              {down_status_icon} {down_status_lbl}\n"
+            f"\u2502   Win Rate   val {down_val_wr*100:.1f}% / test {down_test_wr*100:.1f}%\n"
+            f"\u2502   Threshold  \u2265 {down_thr*100:.1f}%\n"
+            f"\u2502   Trades/day {down_tpd:.1f}\n"
         )
     else:
-        down_detail = f"DOWN        : {down_icon} {'ENABLED' if down_enabled else 'DISABLED (not validated)'}  thr={down_thr:.3f}"
+        down_section = (
+            f"\u2502 \u2193 DOWN Side              \u26d4 DISABLED\n"
+            f"\u2502   Not validated\n"
+        )
 
-    lines = [
-        SEP,
-        f"<b>ML Model Status</b> [{slot.upper()}]",
-        SEP,
-        f"Trained     : {str(meta.get('train_date', 'N/A'))[:19]}",
-        "",
-        "\u2191 UP Side",
-        f"  Test WR   : {meta.get('test_wr', 0)*100:.2f}%",
-        f"  Val WR    : {meta.get('val_wr', 0)*100:.2f}%",
-        f"  Trades/day: {meta.get('test_trades_per_day', 0):.1f}",
-        f"  Threshold : {threshold:.3f}",
-        "",
-        "\u2193 DOWN Side",
-        f"  {down_detail}",
-        "",
-        f"Samples     : {meta.get('sample_count', 0):,}",
-        f"Best iter   : {meta.get('best_iteration', 0)}",
-        SEP,
-    ]
-    return "\n".join(lines)
+    return (
+        f"\U0001f916 <b>ML Model Status</b>  [{slot.upper()}]\n"
+        "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        f"\u2502 \U0001f4c5 Trained:  {str(meta.get('train_date', 'N/A'))[:16]} UTC\n"
+        f"\u2502 \U0001f4ca Samples:  {meta.get('sample_count', 0):,}\n"
+        "\u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        f"\u2502 \u2191 UP Side               {up_gate_icon} {up_gate_lbl}\n"
+        f"\u2502   Win Rate   val {meta.get('val_wr', 0)*100:.1f}% / test {meta.get('test_wr', 0)*100:.1f}%\n"
+        f"\u2502   Threshold  \u2265 {threshold*100:.1f}%\n"
+        f"\u2502   Trades/day {meta.get('test_trades_per_day', 0):.1f}\n"
+        "\u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        f"{down_section}"
+        "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    )
 
 
 def format_model_compare(current_meta: dict, candidate_meta: dict) -> str:
@@ -794,82 +796,87 @@ def format_retrain_blocked(meta: dict, threshold: float) -> str:
 
     The candidate IS saved — the user must decide to promote or discard.
     """
+    _GATE = 0.59
     down_enabled = meta.get("down_enabled", False)
-    down_icon = "\u2705" if down_enabled else "\u274c"
-    down_thr = meta.get("down_threshold", round(1.0 - threshold, 4))
-    down_val_wr = meta.get("down_val_wr")
+    down_thr     = meta.get("down_threshold", round(1.0 - threshold, 4))
+    down_val_wr  = meta.get("down_val_wr")
     down_test_wr = meta.get("down_test_wr")
-    down_tpd = meta.get("down_test_tpd", meta.get("down_val_tpd", 0))
+    down_tpd     = meta.get("down_test_tpd", meta.get("down_val_tpd", 0))
+
+    up_test_wr   = meta.get("test_wr", 0)
+    shortfall     = round((up_test_wr - _GATE) * 100, 1)   # always negative here
+    shortfall_str = f"{shortfall:+.1f}%"                   # e.g. "-2.2%"
 
     if down_val_wr is not None and down_test_wr is not None:
-        down_line = (
-            f"\u2193 DOWN        : {down_icon} {'ENABLED' if down_enabled else 'DISABLED'}  "
-            f"thr={down_thr:.3f}  val={down_val_wr*100:.2f}%  test={down_test_wr*100:.2f}%  tpd={down_tpd:.1f}"
+        down_status_lbl  = "ENABLED" if down_enabled else "DISABLED"
+        down_status_icon = "\u2705" if down_enabled else "\u26d4"
+        down_section = (
+            f"\u2502 \u2193 DOWN Side              {down_status_icon} {down_status_lbl}\n"
+            f"\u2502   Val  {down_val_wr*100:.1f}%  /  Test  {down_test_wr*100:.1f}%\n"
+            f"\u2502   Threshold \u2265 {down_thr*100:.1f}%  \u2022  {down_tpd:.1f} trades/day\n"
         )
     else:
-        down_line = f"\u2193 DOWN        : {down_icon} not validated  thr={down_thr:.3f}"
+        down_section = (
+            f"\u2502 \u2193 DOWN Side              \u26d4 DISABLED\n"
+            f"\u2502   Not validated\n"
+        )
 
-    lines = [
-        SEP,
-        "\u26a0\ufe0f <b>Retrain Complete \u2014 Deployment Gate NOT Passed</b>",
-        SEP,
-        f"Trained     : {str(meta.get('train_date', 'N/A'))[:19]}",
-        f"Samples     : {meta.get('sample_count', 0):,}",
-        "",
-        "\u2191 UP Side",
-        f"  Val WR    : {meta.get('val_wr', 0)*100:.2f}%",
-        f"  Test WR   : {meta.get('test_wr', 0)*100:.2f}%  \u274c  (min 59.00%)",
-        f"  Trades/day: {meta.get('test_trades_per_day', 0):.1f}",
-        f"  Threshold : {threshold:.3f}",
-        "",
-        "\u2193 DOWN Side",
-        f"  {down_line}",
-        SEP,
-        "<b>UP side did NOT meet Blueprint Rule 10 (test WR \u2265 59%).</b>",
-        "Candidate saved but was <b>not</b> auto-promoted.",
-        "",
-        "Choose an action below:",
-    ]
-    return "\n".join(lines)
+    return (
+        "\u26a0\ufe0f <b>Retrain \u2014 Gate NOT Passed</b>\n"
+        "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        f"\u2502 \U0001f4c5 Trained:  {str(meta.get('train_date', 'N/A'))[:16]} UTC\n"
+        f"\u2502 \U0001f4ca Samples:  {meta.get('sample_count', 0):,}\n"
+        "\u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        f"\u2502 \u2191 UP Side        \u274c Gate failed  {shortfall_str}\n"
+        f"\u2502   Val  {meta.get('val_wr', 0)*100:.1f}%  /  Test  {up_test_wr*100:.1f}%  (min {_GATE*100:.1f}%)\n"
+        f"\u2502   Threshold \u2265 {threshold*100:.1f}%  \u2022  {meta.get('test_trades_per_day', 0):.1f} trades/day\n"
+        "\u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        f"{down_section}"
+        "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        "Candidate saved. Not auto-promoted."
+    )
 
 
 def format_retrain_complete(meta: dict, threshold: float) -> str:
     """Show retrain results for candidate model — UP passed gate, DOWN shown separately."""
+    _GATE = 0.59
     down_enabled = meta.get("down_enabled", False)
-    down_icon = "\u2705" if down_enabled else "\u274c"
-    down_thr = meta.get("down_threshold", round(1.0 - threshold, 4))
-    down_val_wr = meta.get("down_val_wr")
+    down_thr     = meta.get("down_threshold", round(1.0 - threshold, 4))
+    down_val_wr  = meta.get("down_val_wr")
     down_test_wr = meta.get("down_test_wr")
-    down_tpd = meta.get("down_test_tpd", meta.get("down_val_tpd", 0))
+    down_tpd     = meta.get("down_test_tpd", meta.get("down_val_tpd", 0))
+
+    up_test_wr  = meta.get("test_wr", 0)
+    up_margin   = round((up_test_wr - _GATE) * 100, 1)
+    up_margin_str = f"+{up_margin:.1f}%" if up_margin >= 0 else f"{up_margin:.1f}%"
 
     if down_val_wr is not None and down_test_wr is not None:
-        down_line = (
-            f"\u2193 DOWN        : {down_icon} {'ENABLED' if down_enabled else 'DISABLED'}  "
-            f"thr={down_thr:.3f}  val={down_val_wr*100:.2f}%  test={down_test_wr*100:.2f}%  tpd={down_tpd:.1f}"
+        down_status_lbl  = "ENABLED" if down_enabled else "DISABLED"
+        down_status_icon = "\u2705" if down_enabled else "\u26d4"
+        down_section = (
+            f"\u2502 \u2193 DOWN Side              {down_status_icon} {down_status_lbl}\n"
+            f"\u2502   Val  {down_val_wr*100:.1f}%  /  Test  {down_test_wr*100:.1f}%\n"
+            f"\u2502   Threshold \u2265 {down_thr*100:.1f}%  \u2022  {down_tpd:.1f} trades/day\n"
         )
     else:
-        down_line = f"\u2193 DOWN        : {down_icon} not validated  thr={down_thr:.3f}"
+        down_section = (
+            f"\u2502 \u2193 DOWN Side              \u26d4 DISABLED\n"
+            f"\u2502   Not validated\n"
+        )
 
-    lines = [
-        SEP,
-        "\u2705 <b>Retrain Complete (candidate saved)</b>",
-        SEP,
-        f"Trained     : {str(meta.get('train_date', 'N/A'))[:19]}",
-        f"Samples     : {meta.get('sample_count', 0):,}",
-        "",
-        "\u2191 UP Side \u2705",
-        f"  Val WR    : {meta.get('val_wr', 0)*100:.2f}%",
-        f"  Test WR   : {meta.get('test_wr', 0)*100:.2f}%",
-        f"  Trades/day: {meta.get('test_trades_per_day', 0):.1f}",
-        f"  Threshold : {threshold:.3f}",
-        "",
-        "\u2193 DOWN Side",
-        f"  {down_line}",
-        SEP,
-        "Use /model_compare to compare with current.",
-        "Use /promote_model to deploy.",
-    ]
-    return "\n".join(lines)
+    return (
+        "\u2705 <b>Retrain Complete</b>\n"
+        "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        f"\u2502 \U0001f4c5 Trained:  {str(meta.get('train_date', 'N/A'))[:16]} UTC\n"
+        f"\u2502 \U0001f4ca Samples:  {meta.get('sample_count', 0):,}\n"
+        "\u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        f"\u2502 \u2191 UP Side        \u2705 Gate passed  {up_margin_str}\n"
+        f"\u2502   Val  {meta.get('val_wr', 0)*100:.1f}%  /  Test  {up_test_wr*100:.1f}%  (min {_GATE*100:.1f}%)\n"
+        f"\u2502   Threshold \u2265 {threshold*100:.1f}%  \u2022  {meta.get('test_trades_per_day', 0):.1f} trades/day\n"
+        "\u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+        f"{down_section}"
+        "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    )
 
 
 def format_set_threshold(threshold: float) -> str:
