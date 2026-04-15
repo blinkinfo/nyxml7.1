@@ -1198,16 +1198,16 @@ async def _retrain_background(application, chat_id) -> None:
 
     try:
         loop = _asyncio.get_event_loop()
-        log.info("Retrain: fetching 5 months of MEXC data...")
+        log.info("Retrain: fetching 9 months of MEXC data...")
         data = await _asyncio.wait_for(
-            loop.run_in_executor(None, lambda: data_fetcher.fetch_all(months=5)),
+            loop.run_in_executor(None, lambda: data_fetcher.fetch_all(months=9)),
             timeout=1500,
         )
         log.info("Retrain: building features...")
         df_feat = await _asyncio.wait_for(
             loop.run_in_executor(
                 None, lambda: feat_eng.build_features(
-                    data["df5"], data["df15"], data["df1h"], data["funding"]
+                    data["df5"], data["df15"], data["df1h"], data["funding"], data["cvd"]
                 )
             ),
             timeout=1500,

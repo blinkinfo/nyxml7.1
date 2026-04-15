@@ -25,7 +25,7 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Feature column order — MUST match exactly (35 features)
+# Feature column order — MUST match exactly (37 features)
 # ---------------------------------------------------------------------------
 FEATURE_COLS = [
     "body_ratio_n1", "body_ratio_n2", "body_ratio_n3",
@@ -406,7 +406,7 @@ def build_features(
     # Drop rows with any NaN in features or target, return feature cols + target
     # -----------------------------------------------------------------------
     all_cols = FEATURE_COLS + ["target"]
-    df_out = df5[all_cols].dropna()
+    df_out = df5[["timestamp"] + all_cols].dropna(subset=all_cols)
     log.info("build_features: %d rows after dropna (started with %d)", len(df_out), len(df5))
     return df_out.reset_index(drop=True)
 

@@ -24,7 +24,7 @@ import config as cfg
 
 log = logging.getLogger(__name__)
 
-FEATURE_COLS = feat_eng.FEATURE_COLS  # 36 features in exact order
+FEATURE_COLS = feat_eng.FEATURE_COLS  # 37 features in exact order
 
 # Module-level reload flag so cmd_promote_model can signal a reload
 _RELOAD_REQUESTED = False

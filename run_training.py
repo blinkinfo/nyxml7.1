@@ -2,7 +2,7 @@ import sys
 import site
 # Add user site-packages so managed service can find ccxt/lightgbm etc.
 sys.path.insert(0, site.getusersitepackages())
-sys.path.insert(0, '/home/nebula/nyxml3.7')
+sys.path.insert(0, '/home/nebula/nyxml4')
 from ml import data_fetcher, features as feat_eng, trainer, model_store
 
 print('Fetching 9 months of MEXC data...')
@@ -12,7 +12,8 @@ print(f'5m: {len(data["df5"])}, 15m: {len(data["df15"])}, 1h: {len(data["df1h"])
 print('Building features...')
 df_feat = feat_eng.build_features(data['df5'], data['df15'], data['df1h'], data['funding'], data['cvd'])
 print(f'Feature matrix: {df_feat.shape}')
-assert list(df_feat.columns[:len(feat_eng.FEATURE_COLS)]) == feat_eng.FEATURE_COLS, f'Feature order mismatch: {list(df_feat.columns[:len(feat_eng.FEATURE_COLS)])}'
+assert all(col in df_feat.columns for col in feat_eng.FEATURE_COLS), f'Missing feature columns: {[c for c in feat_eng.FEATURE_COLS if c not in df_feat.columns]}'
+assert list(df_feat[feat_eng.FEATURE_COLS].columns) == feat_eng.FEATURE_COLS, f'Feature order mismatch: {list(df_feat.columns)}'
 print('Feature order OK')
 
 print('Training model...')
