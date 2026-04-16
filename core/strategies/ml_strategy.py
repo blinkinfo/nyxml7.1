@@ -273,7 +273,9 @@ class MLStrategy(BaseStrategy):
             if df5_rows >= 2:
                 try:
                     import pandas as _pd
-                    n1 = df5.iloc[-1]
+                    # df5[-1] is the still-forming candle N; df5[-2] is the last
+                    # fully-closed candle N-1 — that is what we log as "candle_n1".
+                    n1 = df5.iloc[-2]
                     ts_raw = n1["timestamp"]
                     if isinstance(ts_raw, _pd.Timestamp):
                         candle_n1_ts = str(ts_raw.tz_localize("UTC").isoformat() if ts_raw.tzinfo is None else ts_raw.isoformat())
