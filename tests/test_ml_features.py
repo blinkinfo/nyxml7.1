@@ -37,7 +37,9 @@ def test_feature_order():
                 'atr_percentile_24h', 'vol_regime',
                 'rsi14', 'candle_streak', 'price_in_range', 'ema_cross_5m',
                 'body_vs_range5', 'range_expansion', 'vwap_dist_20',
-                'cvd_ratio', 'cvd_delta_norm']
+                'cvd_ratio', 'cvd_delta_norm',
+                'cvd_cumulative_5', 'cvd_cumulative_20', 'cvd_trend_slope',
+                'cvd_divergence', 'oi_change_5bar']
     assert FEATURE_COLS == expected
 
 
@@ -231,13 +233,14 @@ def test_live_features_match_training_for_latest_closed_5m_row():
 
     # Training features on full history
     train_feat = build_features(df5, df15, df1h, funding)
-    expected = train_feat[FEATURE_COLS].iloc[-2].to_numpy()
+    expected = train_feat[FEATURE_COLS].iloc[-1].to_numpy()
 
     # Live path semantics:
-    #   - drop in-progress 5m candle only
-    #   - keep 15m/1h history; builder itself applies <= ts_n1 filtering
+    #   - include the still-forming 5m candle as the final row
+    #   - canonical live inference derives the row by calling build_features()
+    #     on the same inputs and taking the latest usable row
     live_row, nan_features = build_live_features(
-        df5.iloc[:-1].copy(),
+        df5.copy(),
         df15.copy(),
         df1h.copy(),
         float(funding["funding_rate"].iloc[-1]),
@@ -259,9 +262,6 @@ def test_fetch_funding_mock():
       (c) REST results are deduplicated (duplicate settleTime entries collapsed)
       (d) Records outside [start_ms, end_ms) are filtered out
     """
-    import sys
-    sys.path.insert(0, '/home/nebula/nyxml4')
-
     from unittest.mock import patch, MagicMock
     import ml.data_fetcher as df_module
     from ml.data_fetcher import fetch_funding
@@ -458,13 +458,13 @@ def test_cvd_ratio_parity():
 
     train_feat = build_features(df5, df15, df1h, funding, cvd)
     live_row, nan_feats = build_live_features(
-        df5.iloc[:-1].copy(), df15.copy(), df1h.copy(), fr, fbuf, cvd.copy())
+        df5.copy(), df15.copy(), df1h.copy(), fr, fbuf, cvd.copy())
 
     assert live_row is not None, f"live returned None; nan={nan_feats}"
     assert nan_feats == [], f"Unexpected NaN features: {nan_feats}"
 
     idx_ratio = FEATURE_COLS.index("cvd_ratio")
-    train_val = float(train_feat["cvd_ratio"].iloc[-2])
+    train_val = float(train_feat["cvd_ratio"].iloc[-1])
     live_val  = float(live_row[0][idx_ratio])
 
     # Value must be in [0, 1]
@@ -488,12 +488,12 @@ def test_body_vs_range5_parity():
 
     train_feat = build_features(df5, df15, df1h, funding)
     live_row, nan_feats = build_live_features(
-        df5.iloc[:-1].copy(), df15.copy(), df1h.copy(), fr, fbuf)
+        df5.copy(), df15.copy(), df1h.copy(), fr, fbuf)
 
     assert live_row is not None, f"live returned None; nan={nan_feats}"
 
     idx = FEATURE_COLS.index("body_vs_range5")
-    train_val = float(train_feat["body_vs_range5"].iloc[-2])
+    train_val = float(train_feat["body_vs_range5"].iloc[-1])
     live_val  = float(live_row[0][idx])
 
     # Hand-compute reference at last training row (corresponds to df5 row n-2
@@ -513,11 +513,10 @@ def test_body_vs_range5_parity():
     # then internally does df5 = df5_live.copy().reset_index(drop=True).
     # high_arr = df5["high"].values on that 499-row df.
     # _n5_high = high_arr[-6:-1] = last 5 closed candles ending at N-1 (iloc[-2]).
-    df5_live_ref = df5.iloc[:-1].copy().reset_index(drop=True)
-    H_ref = df5_live_ref["high"].values
-    L_ref = df5_live_ref["low"].values
-    C_ref = df5_live_ref["close"].values
-    O_ref = df5_live_ref["open"].values
+    H_ref = df5["high"].values
+    L_ref = df5["low"].values
+    C_ref = df5["close"].values
+    O_ref = df5["open"].values
     _n5_high_ref = H_ref[max(0, len(H_ref)-6):-1]
     _n5_low_ref  = L_ref[max(0, len(L_ref)-6):-1]
     _5bar_range_ref = max(float(np.max(_n5_high_ref)) - float(np.min(_n5_low_ref)), 1e-9)
@@ -543,12 +542,12 @@ def test_range_expansion_parity():
 
     train_feat = build_features(df5, df15, df1h, funding)
     live_row, nan_feats = build_live_features(
-        df5.iloc[:-1].copy(), df15.copy(), df1h.copy(), fr, fbuf)
+        df5.copy(), df15.copy(), df1h.copy(), fr, fbuf)
 
     assert live_row is not None, f"live returned None; nan={nan_feats}"
 
     idx = FEATURE_COLS.index("range_expansion")
-    train_val = float(train_feat["range_expansion"].iloc[-2])
+    train_val = float(train_feat["range_expansion"].iloc[-1])
     live_val  = float(live_row[0][idx])
 
     np.testing.assert_allclose(live_val, train_val, atol=1e-12,
@@ -563,9 +562,8 @@ def test_range_expansion_parity():
     # Formula spot-check — mirror the implementation exactly.
     # build_live_features receives df5.iloc[:-1] (499 rows).
     # high_arr = those 499 rows; current=[-6:-1], prior=[-11:-6].
-    df5_live_ref = df5.iloc[:-1].copy().reset_index(drop=True)
-    H_ref = df5_live_ref["high"].values
-    L_ref = df5_live_ref["low"].values
+    H_ref = df5["high"].values
+    L_ref = df5["low"].values
     _n5_hi_ref = H_ref[max(0, len(H_ref)-6):-1]
     _n5_lo_ref = L_ref[max(0, len(L_ref)-6):-1]
     _pr_hi_ref = H_ref[max(0, len(H_ref)-11):-6]
@@ -590,12 +588,12 @@ def test_vwap_dist_20_parity():
 
     train_feat = build_features(df5, df15, df1h, funding)
     live_row, nan_feats = build_live_features(
-        df5.iloc[:-1].copy(), df15.copy(), df1h.copy(), fr, fbuf)
+        df5.copy(), df15.copy(), df1h.copy(), fr, fbuf)
 
     assert live_row is not None, f"live returned None; nan={nan_feats}"
 
     idx = FEATURE_COLS.index("vwap_dist_20")
-    train_val = float(train_feat["vwap_dist_20"].iloc[-2])
+    train_val = float(train_feat["vwap_dist_20"].iloc[-1])
     live_val  = float(live_row[0][idx])
 
     np.testing.assert_allclose(live_val, train_val, atol=1e-9,
@@ -610,15 +608,14 @@ def test_vwap_dist_20_parity():
     # atr5_val = atr5.iloc[-2] (safe(atr5,1) on 499-row df = second-to-last).
     # VWAP window: cv_arr[-21:-1] on 499-row df = 20 values ending at N-1 (iloc[-2]).
     # close_n1 = df5["close"].iloc[-2] on 499-row df.
-    df5_live_ref = df5.iloc[:-1].copy().reset_index(drop=True)
-    atr5_ref = compute_atr14(df5_live_ref)
-    atr_n1_ref = float(atr5_ref.iloc[-2])  # safe(atr5, 1) = iloc[-2] of 499-row df
-    cv_ref = (df5_live_ref["close"] * df5_live_ref["volume"]).values
-    v_ref  = df5_live_ref["volume"].values
+    atr5_ref = compute_atr14(df5)
+    atr_n1_ref = float(atr5_ref.iloc[-2])
+    cv_ref = (df5["close"] * df5["volume"]).values
+    v_ref  = df5["volume"].values
     _cv_win_ref = cv_ref[max(0, len(cv_ref)-21):-1]
     _v_win_ref  = v_ref[max(0, len(v_ref)-21):-1]
     vwap20_ref  = float(np.sum(_cv_win_ref)) / max(float(np.sum(_v_win_ref)), 1e-9)
-    close_n1_ref = float(df5_live_ref["close"].iloc[-2])
+    close_n1_ref = float(df5["close"].iloc[-2])
     ref = (close_n1_ref - vwap20_ref) / max(atr_n1_ref, 1e-9)
     np.testing.assert_allclose(live_val, ref, atol=1e-9,
         err_msg=f"vwap_dist_20 formula mismatch: live={live_val} ref={ref}")
@@ -643,7 +640,7 @@ def test_structure_features_no_nan_in_normal_conditions():
             f"{feat}: {nan_count}/{total} NaN rows ({nan_count/total:.1%}) — exceeds 2% warmup allowance"
 
     live_row, nan_feats = build_live_features(
-        df5.iloc[:-1].copy(), df15.copy(), df1h.copy(), fr, fbuf)
+        df5.copy(), df15.copy(), df1h.copy(), fr, fbuf)
     assert live_row is not None, f"live returned None; nan={nan_feats}"
     for feat in struct_feats:
         i = FEATURE_COLS.index(feat)
@@ -672,13 +669,13 @@ def test_cvd_delta_norm_parity():
 
     train_feat = build_features(df5, df15, df1h, funding, cvd)
     live_row, nan_feats = build_live_features(
-        df5.iloc[:-1].copy(), df15.copy(), df1h.copy(), fr, fbuf, cvd.copy())
+        df5.copy(), df15.copy(), df1h.copy(), fr, fbuf, cvd.copy())
 
     assert live_row is not None, f"live returned None; nan={nan_feats}"
     assert nan_feats == [], f"Unexpected NaN features: {nan_feats}"
 
     idx_norm = FEATURE_COLS.index("cvd_delta_norm")
-    train_val = float(train_feat["cvd_delta_norm"].iloc[-2])
+    train_val = float(train_feat["cvd_delta_norm"].iloc[-1])
     live_val  = float(live_row[0][idx_norm])
 
     # Must be finite
